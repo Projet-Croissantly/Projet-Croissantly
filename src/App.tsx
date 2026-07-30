@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import { Analytics } from "@vercel/analytics/react"; // <-- AJOUTER CETTE LIGNE
 
 export default function App() {
   // ============================
@@ -1756,6 +1757,10 @@ export default function App() {
         .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
       `}} />
+
+      {/* VERCEL ANALYTICS */}
+      <Analytics />
+
     </div>
   );
 }

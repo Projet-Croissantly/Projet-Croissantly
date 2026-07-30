@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    
+    <!-- Lier le manifest pour la PWA -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+
+    <!-- Icône d'onglet classique -->
+    <link rel="shortcut icon" href="%PUBLIC_URL%/Flavicon.png" />
+
+    <!-- Couleur de la barre d'état -->
+    <meta name="theme-color" content="#fbbf24" />
+
+    <!-- Configuration spécifique pour Apple (iOS) PWA -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Croissantly" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icon-192x192.png" />
+
+    <!-- Tailwind CSS (via CDN comme dans ton code) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <title>Croissantly</title>
+  </head>
+
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+
+    <!-- Script d'activation de la PWA (Service Worker) -->
+    <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('%PUBLIC_URL%/service-worker.js');
+    });
+  }
+</script>
+  </body>
+</html>

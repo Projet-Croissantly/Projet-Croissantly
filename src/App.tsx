@@ -4,7 +4,27 @@ import { supabase } from "./supabaseClient";
 
 export default function App() {
   // ============================
-  // ÉTATS SAAS
+  // ÉTATS MULTI-TENANT (SOCIÉTÉS)
+  // ============================
+  const [companiesList, setCompaniesList] = useState([]);
+  const [activeCompany, setActiveCompany] = useState(null);
+  const [isCreatingCompany, setIsCreatingCompany] = useState(false);
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
+
+  // Formulaire Nouvelle Société
+  const [newCompName, setNewCompName] = useState("");
+  const [newCompLogo, setNewCompLogo] = useState(null);
+  const [newCompLogoPreview, setNewCompLogoPreview] = useState("");
+  const [newCompIsPrivate, setNewCompIsPrivate] = useState(false);
+  const [newCompPin, setNewCompPin] = useState("");
+
+  // Gestion du PIN à la connexion
+  const [selectedPrivateCompany, setSelectedPrivateCompany] = useState(null);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
+
+  // ============================
+  // ÉTATS SAAS (SERVICES & APP)
   // ============================
   const [workspaces, setWorkspaces] = useState([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
@@ -26,7 +46,7 @@ export default function App() {
   const [teamFormName, setTeamFormName] = useState("");
   const [teamFormEmoji, setTeamFormEmoji] = useState("📢");
 
-  // Modale Nouveautés (Changelog V3.8.5)
+  // Modale Nouveautés
   const [showChangelogModal, setShowChangelogModal] = useState(false);
 
   // États existants de l'application
@@ -107,11 +127,10 @@ export default function App() {
   };
 
   // ============================
-  // INITIALISATION
+  // INITIALISATION & SOCIÉTÉS
   // ============================
   useEffect(() => {
-    fetchWorkspaces();
-    // Affichage de la pop-up de nouveauté une seule fois pour la V3.8.5
+    fetchCompanies();
     const hasSeenV385 = localStorage.getItem("croissantly_v3.8.5_seen");
     if (!hasSeenV385) {
       setShowChangelogModal(true);
@@ -119,12 +138,149 @@ export default function App() {
     }
   }, []);
 
-  const fetchWorkspaces = async () => {
-    setLoadingWorkspaces(true);
-    const { data: wsData } = await supabase.from("workspaces").select("*").order("id");
-    const { data: usersData } = await supabase.from("users").select("workspace_id");
+  const fetchCompanies = async () => {
+    setLoadingCompanies(true);
+    const savedCompanyId = localStorage.getItem('croissantly_active_company');
+    const { data } = await supabase.from('companies').select('*').order('name');
     
-    if (wsData) {
+    if (data) {
+      setCompaniesList(data);
+      if (savedCompanyId) {
+        const foundCompany = data.find(c => c.id === savedCompanyId);
+        if (foundCompany) {
+          if (foundCompany.is_private) {
+            const hasAccessBadge = localStorage.getItem(`croissantly_access_${savedCompanyId}`);
+            if (hasAccessBadge === 'true') setActiveCompany(foundCompany);
+          } else {
+            setActiveCompany(foundCompany);
+          }
+        }
+      }
+    }
+    setLoadingCompanies(false);
+  };
+
+  // Traitement Image: Redimensionnement via Canvas pour limiter à < 50Ko
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert("Veuillez sélectionner une image valide."); return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 256; // Taille idéale pour un logo SaaS
+        let { width, height } = img;
+        if (width > height && width > maxDim) {
+          height *= maxDim / width; width = maxDim;
+        } else if (height > maxDim) {
+          width *= maxDim / height; height = maxDim;
+        }
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          const compressedFile = new File([blob], `logo_${Date.now()}.webp`, { type: 'image/webp' });
+          setNewCompLogo(compressedFile);
+          setNewCompLogoPreview(canvas.toDataURL('image/webp'));
+        }, 'image/webp', 0.8);
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveCompany = async (e) => {
+    e.preventDefault();
+    if (newCompIsPrivate && newCompPin.length !== 4) {
+      alert("Le code PIN doit comporter exactement 4 chiffres."); return;
+    }
+    try {
+      setLoadingCompanies(true);
+      let logoUrl = null;
+      if (newCompLogo) {
+        const { error: uploadError } = await supabase.storage.from('company-logos').upload(newCompLogo.name, newCompLogo);
+        if (uploadError) throw uploadError;
+        const { data: publicUrlData } = supabase.storage.from('company-logos').getPublicUrl(newCompLogo.name);
+        logoUrl = publicUrlData.publicUrl;
+      }
+      const { data: newCompany, error } = await supabase.from('companies').insert([{
+        name: newCompName,
+        logo_url: logoUrl,
+        is_private: newCompIsPrivate,
+        pin_code: newCompIsPrivate ? newCompPin : null
+      }]).select().single();
+      
+      if (error) throw error;
+
+      setCompaniesList([...companiesList, newCompany]);
+      loginToCompany(newCompany);
+      setIsCreatingCompany(false);
+      setNewCompName(""); setNewCompLogo(null); setNewCompLogoPreview(""); setNewCompIsPrivate(false); setNewCompPin("");
+    } catch (err) {
+      alert("Erreur création entreprise: " + err.message);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
+
+  const handleSelectCompany = (company) => {
+    if (company.is_private) {
+      const hasAccessBadge = localStorage.getItem(`croissantly_access_${company.id}`);
+      if (hasAccessBadge === 'true') {
+        loginToCompany(company);
+      } else {
+        setSelectedPrivateCompany(company);
+      }
+    } else {
+      loginToCompany(company);
+    }
+  };
+
+  const verifyPin = () => {
+    if (pinInput === selectedPrivateCompany.pin_code) {
+      localStorage.setItem(`croissantly_access_${selectedPrivateCompany.id}`, 'true');
+      loginToCompany(selectedPrivateCompany);
+      setSelectedPrivateCompany(null);
+      setPinInput('');
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
+
+  const loginToCompany = (company) => {
+    localStorage.setItem('croissantly_active_company', company.id);
+    setActiveCompany(company);
+    setSelectedWorkspace(null); // Reset workspace when switching company
+  };
+
+  const logoutCompany = () => {
+    localStorage.removeItem('croissantly_active_company');
+    setActiveCompany(null);
+    setSelectedWorkspace(null);
+  };
+
+  // ============================
+  // ACTIONS SERVICES (WORKSPACES)
+  // ============================
+  useEffect(() => {
+    if (activeCompany) fetchWorkspaces();
+  }, [activeCompany]);
+
+  const fetchWorkspaces = async () => {
+    if (!activeCompany) return;
+    setLoadingWorkspaces(true);
+    // On isole les services par société
+    const { data: wsData } = await supabase.from("workspaces").select("*").eq("company_id", activeCompany.id).order("id");
+    
+    if (wsData && wsData.length > 0) {
+      const wsIds = wsData.map(w => w.id);
+      const { data: usersData } = await supabase.from("users").select("workspace_id").in("workspace_id", wsIds);
       const wsWithCounts = wsData.map(ws => ({
         ...ws,
         userCount: usersData ? usersData.filter(u => u.workspace_id === ws.id).length : 0
@@ -235,9 +391,6 @@ export default function App() {
     setLoading(false);
   };
 
-  // ============================
-  // ACTIONS ESPACES ET ÉQUIPES
-  // ============================
   const openCreateWorkspace = () => {
     setEditingWorkspaceId(null); setWsFormName(""); setWsFormEmoji("🏢"); setWsFormPastries([{ emoji: "🍫", name: "Chocolatine" }, { emoji: "🥐", name: "Croissant" }, { emoji: "🍇", name: "Pain au raisin" }]); setShowWorkspaceModal(true);
   };
@@ -271,10 +424,10 @@ export default function App() {
         fetchWorkspaces();
       } else {
         const slug = wsFormName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-        const { data: newWs } = await supabase.from("workspaces").insert([{ name: wsFormName, slug, emoji: wsFormEmoji }]).select().single();
+        // Injection du company_id à la création du Workspace
+        const { data: newWs } = await supabase.from("workspaces").insert([{ name: wsFormName, slug, emoji: wsFormEmoji, company_id: activeCompany.id }]).select().single();
         if (newWs) {
           await supabase.from("app_settings").insert([{ workspace_id: newWs.id, pastries: cleanPastries, teams: [{ id: "default", name: "Équipe 1", emoji: "📢" }], delivery_day: 1, current_week: 0 }]);
-          // Auto-sélection après création
           setSelectedWorkspace(newWs);
           fetchWorkspaces();
         }
@@ -612,6 +765,137 @@ export default function App() {
   );
 
   // ============================
+  // RENDER : ÉCRAN DE SÉLECTION D'ENTREPRISE
+  // ============================
+  if (!activeCompany) {
+    return (
+      <div className="flex min-h-screen bg-[#F7F5F0] text-stone-900 relative font-app items-center justify-center p-4">
+        
+        {/* Modale Demande PIN */}
+        {selectedPrivateCompany && (
+          <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center animate-fade-in border border-stone-100">
+              <div className="w-16 h-16 mx-auto bg-stone-50 rounded-2xl border border-stone-200 flex items-center justify-center text-2xl mb-4 overflow-hidden">
+                {selectedPrivateCompany.logo_url ? <img src={selectedPrivateCompany.logo_url} alt="logo" className="w-full h-full object-cover" /> : "🔒"}
+              </div>
+              <h3 className="text-xl font-bold text-stone-900 mb-2">Espace privé</h3>
+              <p className="text-sm text-stone-500 mb-6">Entrez le code PIN de {selectedPrivateCompany.name}</p>
+              
+              <input 
+                type="password" 
+                inputMode="numeric" 
+                maxLength={4} 
+                value={pinInput} 
+                onChange={(e) => setPinInput(e.target.value)} 
+                className="w-full text-center tracking-[0.5em] text-3xl font-black border border-stone-200 p-4 rounded-xl bg-stone-50 focus:border-amber-400 focus:ring-2 focus:ring-amber-100 outline-none mb-2"
+              />
+              {pinError && <p className="text-red-500 text-xs font-bold mb-4">Code PIN incorrect.</p>}
+              
+              <div className="flex gap-2 mt-6">
+                <button onClick={() => setSelectedPrivateCompany(null)} className="flex-1 bg-stone-100 text-stone-600 font-bold py-3 rounded-xl hover:bg-stone-200 transition-colors">Annuler</button>
+                <button onClick={verifyPin} className="flex-1 bg-amber-400 text-stone-900 font-bold py-3 rounded-xl shadow-sm hover:bg-amber-300 transition-all">Valider</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-stone-200 p-8 sm:p-10 relative overflow-hidden">
+          <div className="flex justify-center mb-8">
+            <div className="w-20 h-20 rounded-2xl shadow-sm flex items-center justify-center overflow-hidden border border-stone-200/50">
+               <img src={process.env.PUBLIC_URL + "/Flavicon.png"} alt="Croissantly" className="w-full h-full object-cover" />
+            </div>
+          </div>
+          
+          <h1 className="text-3xl font-serif text-stone-900 text-center mb-2">Croissantly</h1>
+          <p className="text-stone-500 text-center mb-10 text-sm">Rejoignez l'espace de votre entreprise ou créez le vôtre.</p>
+
+          {!isCreatingCompany ? (
+            <div className="animate-fade-in">
+              {loadingCompanies ? (
+                <div className="text-center text-stone-400 animate-pulse py-8">Chargement des entreprises...</div>
+              ) : (
+                <div className="space-y-3 mb-8 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+                  {companiesList.length > 0 ? companiesList.map(comp => (
+                    <button 
+                      key={comp.id} 
+                      onClick={() => handleSelectCompany(comp)}
+                      className="w-full flex items-center justify-between p-4 rounded-2xl border border-stone-200 bg-white hover:border-amber-400 hover:shadow-sm transition-all text-left group"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-stone-50 border border-stone-100 flex items-center justify-center overflow-hidden text-xl">
+                          {comp.logo_url ? <img src={comp.logo_url} alt={comp.name} className="w-full h-full object-cover" /> : "🏢"}
+                        </div>
+                        <span className="font-bold text-stone-800 text-lg group-hover:text-amber-600 transition-colors">{comp.name}</span>
+                      </div>
+                      {comp.is_private && <span className="text-stone-400 group-hover:text-amber-500 transition-colors" title="Espace privé">🔒</span>}
+                    </button>
+                  )) : (
+                    <div className="text-center text-stone-400 text-sm py-4">Aucune entreprise enregistrée.</div>
+                  )}
+                </div>
+              )}
+              
+              <div className="pt-6 border-t border-stone-100 text-center">
+                <button onClick={() => setIsCreatingCompany(true)} className="text-sm font-bold text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 py-3 px-6 rounded-xl transition-colors w-full">
+                  + Créer une nouvelle entreprise
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleSaveCompany} className="animate-fade-in space-y-5">
+              <div className="text-center mb-6">
+                <label className="cursor-pointer group relative inline-block">
+                  <div className={`w-24 h-24 mx-auto rounded-2xl border-2 border-dashed flex items-center justify-center overflow-hidden transition-colors ${newCompLogoPreview ? 'border-amber-400' : 'border-stone-300 group-hover:border-amber-400 bg-stone-50'}`}>
+                    {newCompLogoPreview ? (
+                      <img src={newCompLogoPreview} alt="Preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-stone-400 flex flex-col items-center gap-1">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M20.4 14.5L16 10 4 20"/></svg>
+                        <span className="text-[10px] font-bold">Logo</span>
+                      </span>
+                    )}
+                  </div>
+                  <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                </label>
+                <p className="text-[10px] text-stone-400 mt-2 max-w-[200px] mx-auto">Formats acceptés : JPG, PNG, WebP. L'image sera automatiquement optimisée.</p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-1.5 block">Nom de l'entreprise</label>
+                <input type="text" value={newCompName} onChange={(e) => setNewCompName(e.target.value)} placeholder="Ex: CroissantTech" className="w-full border border-stone-200 p-3 rounded-xl bg-stone-50 focus:border-amber-400 focus:outline-none" required />
+              </div>
+
+              <div className="bg-stone-50 border border-stone-100 p-4 rounded-xl">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={newCompIsPrivate} onChange={(e) => setNewCompIsPrivate(e.target.checked)} className="w-5 h-5 text-amber-400 border-stone-300 rounded focus:ring-amber-400" />
+                  <div>
+                    <span className="block text-sm font-bold text-stone-800">Rendre cet espace privé 🔒</span>
+                    <span className="block text-xs text-stone-500">Un code PIN sera demandé pour y accéder.</span>
+                  </div>
+                </label>
+                
+                {newCompIsPrivate && (
+                  <div className="mt-4 animate-fade-in pt-4 border-t border-stone-200">
+                    <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-1.5 block">Code PIN (4 chiffres)</label>
+                    <input type="password" inputMode="numeric" maxLength={4} value={newCompPin} onChange={(e) => setNewCompPin(e.target.value)} placeholder="1234" className="w-full text-center tracking-[1em] font-black border border-stone-200 p-3 rounded-xl bg-white focus:border-amber-400 focus:outline-none" required={newCompIsPrivate} />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setIsCreatingCompany(false)} className="flex-1 bg-stone-100 text-stone-600 font-bold py-3.5 rounded-xl hover:bg-stone-200 transition-colors">Retour</button>
+                <button type="submit" disabled={loadingCompanies} className="flex-1 bg-amber-400 text-stone-900 font-bold py-3.5 rounded-xl shadow-sm hover:bg-amber-300 transition-all disabled:opacity-50">
+                  {loadingCompanies ? 'Création...' : 'Créer'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================
   // RENDER PRINCIPAL (SAAS LAYOUT)
   // ============================
   return (
@@ -622,15 +906,22 @@ export default function App() {
       
       {/* SIDEBAR (Navigation de gauche) */}
       <aside className={`absolute inset-y-0 left-0 z-40 w-72 bg-[#F7F5F0] transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col px-5 py-6 border-r border-stone-200/60`}>
-        {/* Logo Section */}
-        <div className="flex justify-between items-center mb-10 pl-2 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl shadow-sm flex items-center justify-center overflow-hidden border border-stone-200/50">
-               <img src={process.env.PUBLIC_URL + "/Flavicon.png"} alt="Croissantly Logo" className="w-full h-full object-cover" />
+        
+        {/* Company Logo Section */}
+        <div className="flex justify-between items-center mb-10 pl-2 shrink-0 group">
+          <div className="flex items-center gap-3 w-full">
+            <div className="w-11 h-11 rounded-xl shadow-sm flex items-center justify-center overflow-hidden border border-stone-200/50 bg-white shrink-0 text-xl">
+               {activeCompany.logo_url ? <img src={activeCompany.logo_url} alt="Logo" className="w-full h-full object-cover" /> : "🏢"}
             </div>
-            <span className="text-2xl font-black tracking-tight text-stone-800">Croissantly</span>
+            <div className="flex flex-col overflow-hidden w-full">
+              <span className="text-lg font-black tracking-tight text-stone-800 truncate leading-tight">{activeCompany.name}</span>
+              <button onClick={logoutCompany} className="text-[10px] font-bold text-stone-400 hover:text-amber-500 uppercase tracking-widest text-left transition-colors flex items-center gap-1 mt-0.5">
+                Changer d'entreprise 
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </div>
           </div>
-          <button className="md:hidden text-stone-400 text-2xl" onClick={() => setIsSidebarOpen(false)}>×</button>
+          <button className="md:hidden text-stone-400 text-2xl ml-2" onClick={() => setIsSidebarOpen(false)}>×</button>
         </div>
 
         {/* Barre de Recherche Espace */}
@@ -699,7 +990,7 @@ export default function App() {
               Voir les nouveautés ✨
             </button>
             <div className="text-center text-[10px] text-stone-400 font-bold tracking-widest uppercase">
-              V.3.8.5
+              V.4.0
             </div>
           </div>
         </div>
@@ -716,15 +1007,15 @@ export default function App() {
             {/* Header Mobile pour la page d'accueil */}
             <div className="md:hidden flex items-center p-4 border-b border-stone-100 bg-white shrink-0">
               <button className="text-stone-500 p-2 -ml-2 hover:bg-stone-100 rounded-lg" onClick={() => setIsSidebarOpen(true)}>☰</button>
-              <span className="font-bold text-stone-900 ml-2">Croissantly</span>
+              <span className="font-bold text-stone-900 ml-2 truncate">{activeCompany.name}</span>
             </div>
             
             {/* Contenu central de bienvenue */}
             <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto custom-scrollbar">
-              <div className="w-24 h-24 rounded-3xl shadow-lg flex items-center justify-center mb-6 overflow-hidden border border-stone-200/50 shrink-0">
-                <img src={process.env.PUBLIC_URL + "/Flavicon.png"} alt="Croissantly Logo" className="w-full h-full object-cover" />
+              <div className="w-24 h-24 rounded-3xl shadow-lg flex items-center justify-center mb-6 overflow-hidden border border-stone-200/50 shrink-0 bg-white text-4xl">
+                 {activeCompany.logo_url ? <img src={activeCompany.logo_url} alt="Logo" className="w-full h-full object-cover" /> : "🏢"}
               </div>
-              <h2 className="text-3xl font-serif text-stone-800 mb-2 text-center">Bienvenue sur Croissantly</h2>
+              <h2 className="text-3xl font-serif text-stone-800 mb-2 text-center">Bienvenue chez {activeCompany.name}</h2>
               <p className="text-stone-500 max-w-sm mb-10 text-center">Sélectionnez un service pour organiser la prochaine tournée de viennoiseries de votre équipe.</p>
               
               {/* Liste cliquable des services existants */}
@@ -747,7 +1038,7 @@ export default function App() {
               )}
 
               <button onClick={openCreateWorkspace} className="bg-stone-900 text-white font-medium py-3.5 px-8 rounded-xl shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all">
-                {workspaces.length > 0 ? "+ Créer un nouveau service" : "Créer votre premier service"}
+                {workspaces.length > 0 ? "+ Créer un nouveau service" : "Créer le premier service"}
               </button>
             </div>
           </div>
@@ -1057,10 +1348,9 @@ export default function App() {
                                     </div>
                                   </div>
                                   
-                                  {/* Partie Basse : Ligne d'absences continue (couleur orange pastel + remontée) */}
+                                  {/* Partie Basse : Ligne d'absences continue */}
                                   {count > 0 && (
                                     <div className="mt-auto flex flex-col justify-end relative group cursor-help pb-2 h-8">
-                                      {/* Le fond de la ligne d'absence */}
                                       <div className={`absolute bottom-1.5 left-0 right-0 h-6 flex items-center bg-orange-100/90 transition-colors group-hover:bg-orange-200/90 
                                         ${isStart ? 'ml-1.5 sm:ml-2 rounded-l-full' : 'ml-0 rounded-l-none'} 
                                         ${isEnd ? 'mr-1.5 sm:mr-2 rounded-r-full' : 'mr-0 rounded-r-none'}
@@ -1142,7 +1432,7 @@ export default function App() {
                           </form>
                         </div>
 
-                        {/* Gestion Bureaux (Épurée sans la coche) */}
+                        {/* Gestion Bureaux */}
                         {teams.length > 0 && (
                           <div className="bg-white p-5 rounded-3xl shadow-sm border border-stone-200">
                             <h4 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">Gérer les équipes</h4>
@@ -1236,7 +1526,7 @@ export default function App() {
                               <div key={user.id} className={`flex items-center justify-between py-4 px-5 rounded-2xl border transition-all ${isInactive ? "bg-stone-50 border-stone-100 opacity-60 grayscale-[0.2]" : "bg-white hover:border-amber-200 border-stone-100 shadow-sm"}`}>
                                 <div className="flex items-center gap-4">
                                   
-                                  {/* Flèches agrandies et centrées verticalement */}
+                                  {/* Flèches */}
                                   <div className="flex flex-col bg-stone-50 rounded-lg border border-stone-200/60 shadow-sm overflow-hidden shrink-0">
                                     <button onClick={() => moveUser(index, -1)} disabled={index === 0 || filterTeam !== "all" || filterTemp} className="p-1.5 text-stone-400 hover:bg-stone-200 hover:text-stone-800 disabled:opacity-30 transition-colors flex justify-center items-center">
                                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>

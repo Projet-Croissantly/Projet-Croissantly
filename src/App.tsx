@@ -1033,9 +1033,9 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#F7F5F0] text-stone-900 overflow-hidden relative font-app">
       
-      {showWorkspaceModal && <WorkspaceModal />}
-      {showCompanySettingsModal && <CompanySettingsModal />}
-      {showChangelogModal && <ChangelogModal />}
+      {showWorkspaceModal && WorkspaceModal()}
+      {showCompanySettingsModal && CompanySettingsModal()}
+      {showChangelogModal && ChangelogModal()}
       
       {/* SIDEBAR (Navigation de gauche) */}
       <aside className={`absolute inset-y-0 left-0 z-40 w-72 bg-[#F7F5F0] transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col px-5 py-6 border-r border-stone-200/60`}>

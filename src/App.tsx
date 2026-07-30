@@ -18,6 +18,9 @@ export default function App() {
   const [newCompIsPrivate, setNewCompIsPrivate] = useState(false);
   const [newCompPin, setNewCompPin] = useState("");
 
+  // Modale Paramètres Société
+  const [showCompanySettingsModal, setShowCompanySettingsModal] = useState(false);
+
   // Gestion du PIN à la connexion
   const [selectedPrivateCompany, setSelectedPrivateCompany] = useState(null);
   const [pinInput, setPinInput] = useState("");
@@ -172,7 +175,7 @@ export default function App() {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 256; // Taille idéale pour un logo SaaS
+        const maxDim = 256; 
         let { width, height } = img;
         if (width > height && width > maxDim) {
           height *= maxDim / width; width = maxDim;
@@ -227,6 +230,71 @@ export default function App() {
     }
   };
 
+  const openCompanySettings = () => {
+    setNewCompName(activeCompany.name);
+    setNewCompLogoPreview(activeCompany.logo_url || "");
+    setNewCompLogo(null);
+    setNewCompIsPrivate(activeCompany.is_private);
+    setNewCompPin(activeCompany.pin_code || "");
+    setShowCompanySettingsModal(true);
+  };
+
+  const handleUpdateCompany = async (e) => {
+    e.preventDefault();
+    if (newCompIsPrivate && newCompPin.length !== 4) {
+      alert("Le code PIN doit comporter exactement 4 chiffres."); return;
+    }
+    try {
+      setLoadingCompanies(true);
+      let logoUrl = activeCompany.logo_url;
+      
+      if (newCompLogo) {
+        const { error: uploadError } = await supabase.storage.from('company-logos').upload(newCompLogo.name, newCompLogo);
+        if (uploadError) throw uploadError;
+        const { data: publicUrlData } = supabase.storage.from('company-logos').getPublicUrl(newCompLogo.name);
+        logoUrl = publicUrlData.publicUrl;
+      }
+
+      const { data: updatedCompany, error } = await supabase.from('companies').update({
+        name: newCompName,
+        logo_url: logoUrl,
+        is_private: newCompIsPrivate,
+        pin_code: newCompIsPrivate ? newCompPin : null
+      }).eq('id', activeCompany.id).select().single();
+      
+      if (error) throw error;
+
+      setActiveCompany(updatedCompany);
+      const updatedList = companiesList.map(c => c.id === updatedCompany.id ? updatedCompany : c);
+      setCompaniesList(updatedList);
+      setShowCompanySettingsModal(false);
+    } catch (err) {
+      alert("Erreur mise à jour: " + err.message);
+    } finally {
+      setLoadingCompanies(false);
+    }
+  };
+
+  const handleDeleteCompany = async () => {
+    if (window.confirm(`⚠️ ATTENTION !\n\nVoulez-vous vraiment supprimer définitivement l'entreprise "${activeCompany.name}" ?\n\nCela supprimera TOUS les services, TOUTES les équipes et TOUS les utilisateurs associés. Cette action est irréversible.`)) {
+      try {
+        setLoadingCompanies(true);
+        // Supabase CASCADE delete on workspaces will handle children if set up, 
+        // but just in case, deleting the company is the primary action.
+        const { error } = await supabase.from('companies').delete().eq('id', activeCompany.id);
+        if (error) throw error;
+        
+        logoutCompany();
+        fetchCompanies();
+        setShowCompanySettingsModal(false);
+      } catch (err) {
+        alert("Erreur de suppression: " + err.message);
+      } finally {
+        setLoadingCompanies(false);
+      }
+    }
+  };
+
   const handleSelectCompany = (company) => {
     if (company.is_private) {
       const hasAccessBadge = localStorage.getItem(`croissantly_access_${company.id}`);
@@ -256,7 +324,7 @@ export default function App() {
   const loginToCompany = (company) => {
     localStorage.setItem('croissantly_active_company', company.id);
     setActiveCompany(company);
-    setSelectedWorkspace(null); // Reset workspace when switching company
+    setSelectedWorkspace(null);
   };
 
   const logoutCompany = () => {
@@ -275,7 +343,6 @@ export default function App() {
   const fetchWorkspaces = async () => {
     if (!activeCompany) return;
     setLoadingWorkspaces(true);
-    // On isole les services par société
     const { data: wsData } = await supabase.from("workspaces").select("*").eq("company_id", activeCompany.id).order("id");
     
     if (wsData && wsData.length > 0) {
@@ -424,7 +491,6 @@ export default function App() {
         fetchWorkspaces();
       } else {
         const slug = wsFormName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-        // Injection du company_id à la création du Workspace
         const { data: newWs } = await supabase.from("workspaces").insert([{ name: wsFormName, slug, emoji: wsFormEmoji, company_id: activeCompany.id }]).select().single();
         if (newWs) {
           await supabase.from("app_settings").insert([{ workspace_id: newWs.id, pastries: cleanPastries, teams: [{ id: "default", name: "Équipe 1", emoji: "📢" }], delivery_day: 1, current_week: 0 }]);
@@ -728,6 +794,65 @@ export default function App() {
     </div>
   );
 
+  const CompanySettingsModal = () => (
+    <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative border border-stone-100 animate-fade-in">
+        <h3 className="text-2xl font-black text-stone-900 mb-6 tracking-tight">Paramètres Entreprise</h3>
+        <form onSubmit={handleUpdateCompany} className="space-y-5">
+          
+          <div className="flex items-center gap-4">
+            <label className="cursor-pointer group relative block shrink-0">
+              <div className={`w-16 h-16 rounded-xl border-2 border-dashed flex items-center justify-center overflow-hidden transition-colors ${newCompLogoPreview ? 'border-amber-400' : 'border-stone-300 group-hover:border-amber-400 bg-stone-50'}`}>
+                {newCompLogoPreview ? (
+                  <img src={newCompLogoPreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-stone-400 flex flex-col items-center gap-1">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M20.4 14.5L16 10 4 20"/></svg>
+                  </span>
+                )}
+              </div>
+              <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+            </label>
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-1.5 block">Nom de l'entreprise</label>
+              <input type="text" value={newCompName} onChange={(e) => setNewCompName(e.target.value)} className="w-full border border-stone-200 p-3 rounded-xl bg-stone-50 focus:border-amber-400 focus:outline-none font-medium text-stone-800" required />
+            </div>
+          </div>
+
+          <div className="bg-stone-50 border border-stone-100 p-4 rounded-xl mt-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={newCompIsPrivate} onChange={(e) => setNewCompIsPrivate(e.target.checked)} className="w-5 h-5 text-amber-400 border-stone-300 rounded focus:ring-amber-400" />
+              <div>
+                <span className="flex items-center gap-2 text-sm font-bold text-stone-800">
+                  Rendre cet espace privé
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                </span>
+                <span className="block text-xs text-stone-500">Un code PIN sera demandé.</span>
+              </div>
+            </label>
+            
+            {newCompIsPrivate && (
+              <div className="mt-4 animate-fade-in pt-4 border-t border-stone-200">
+                <label className="text-[10px] font-bold text-stone-500 uppercase tracking-widest mb-1.5 block">Code PIN (4 chiffres)</label>
+                <input type="password" inputMode="numeric" maxLength={4} value={newCompPin} onChange={(e) => setNewCompPin(e.target.value)} placeholder="1234" className="w-full text-center tracking-[1em] font-black border border-stone-200 p-3 rounded-xl bg-white focus:border-amber-400 focus:outline-none" required={newCompIsPrivate} />
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-between items-center pt-4 mt-2">
+            <button type="button" onClick={handleDeleteCompany} className="text-xs font-bold text-red-500 hover:text-red-600 px-2 underline decoration-red-200 underline-offset-4">Supprimer l'entreprise</button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowCompanySettingsModal(false)} className="text-sm font-bold text-stone-500 hover:text-stone-800 py-2.5 px-5 rounded-xl hover:bg-stone-100 transition-colors">Annuler</button>
+              <button type="submit" disabled={loadingCompanies} className="text-sm font-bold bg-amber-400 text-stone-900 py-2.5 px-6 rounded-xl shadow-sm hover:bg-amber-300 hover:shadow transition-all disabled:opacity-50">
+                {loadingCompanies ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
   const ChangelogModal = () => (
     <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative border border-stone-100 animate-fade-in">
@@ -776,7 +901,7 @@ export default function App() {
           <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center animate-fade-in border border-stone-100">
               <div className="w-16 h-16 mx-auto bg-stone-50 rounded-2xl border border-stone-200 flex items-center justify-center text-2xl mb-4 overflow-hidden">
-                {selectedPrivateCompany.logo_url ? <img src={selectedPrivateCompany.logo_url} alt="logo" className="w-full h-full object-cover" /> : "🔒"}
+                {selectedPrivateCompany.logo_url ? <img src={selectedPrivateCompany.logo_url} alt="logo" className="w-full h-full object-cover" /> : "🏢"}
               </div>
               <h3 className="text-xl font-bold text-stone-900 mb-2">Espace privé</h3>
               <p className="text-sm text-stone-500 mb-6">Entrez le code PIN de {selectedPrivateCompany.name}</p>
@@ -827,7 +952,11 @@ export default function App() {
                         </div>
                         <span className="font-bold text-stone-800 text-lg group-hover:text-amber-600 transition-colors">{comp.name}</span>
                       </div>
-                      {comp.is_private && <span className="text-stone-400 group-hover:text-amber-500 transition-colors" title="Espace privé">🔒</span>}
+                      {comp.is_private && (
+                        <span className="text-stone-400 group-hover:text-amber-500 transition-colors" title="Espace privé">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        </span>
+                      )}
                     </button>
                   )) : (
                     <div className="text-center text-stone-400 text-sm py-4">Aucune entreprise enregistrée.</div>
@@ -869,7 +998,10 @@ export default function App() {
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" checked={newCompIsPrivate} onChange={(e) => setNewCompIsPrivate(e.target.checked)} className="w-5 h-5 text-amber-400 border-stone-300 rounded focus:ring-amber-400" />
                   <div>
-                    <span className="block text-sm font-bold text-stone-800">Rendre cet espace privé 🔒</span>
+                    <span className="flex items-center gap-2 text-sm font-bold text-stone-800">
+                      Rendre cet espace privé
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    </span>
                     <span className="block text-xs text-stone-500">Un code PIN sera demandé pour y accéder.</span>
                   </div>
                 </label>
@@ -902,6 +1034,7 @@ export default function App() {
     <div className="flex h-screen bg-[#F7F5F0] text-stone-900 overflow-hidden relative font-app">
       
       {showWorkspaceModal && <WorkspaceModal />}
+      {showCompanySettingsModal && <CompanySettingsModal />}
       {showChangelogModal && <ChangelogModal />}
       
       {/* SIDEBAR (Navigation de gauche) */}
@@ -914,7 +1047,12 @@ export default function App() {
                {activeCompany.logo_url ? <img src={activeCompany.logo_url} alt="Logo" className="w-full h-full object-cover" /> : "🏢"}
             </div>
             <div className="flex flex-col overflow-hidden w-full">
-              <span className="text-lg font-black tracking-tight text-stone-800 truncate leading-tight">{activeCompany.name}</span>
+              <span className="text-lg font-black tracking-tight text-stone-800 truncate leading-tight flex items-center gap-1.5">
+                {activeCompany.name}
+                {activeCompany.is_private && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-stone-400 mt-0.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                )}
+              </span>
               <button onClick={logoutCompany} className="text-[10px] font-bold text-stone-400 hover:text-amber-500 uppercase tracking-widest text-left transition-colors flex items-center gap-1 mt-0.5">
                 Changer d'entreprise 
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M9 18l6-6-6-6"/></svg>
@@ -985,12 +1123,19 @@ export default function App() {
             Créer un service
           </button>
           
+          <button onClick={openCompanySettings} className="w-full flex items-center gap-3 px-3 py-2.5 text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-all text-left font-medium text-sm">
+            <span className="w-6 h-6 rounded flex items-center justify-center bg-stone-200/50 text-stone-500 text-lg leading-none">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </span>
+            Paramètres {activeCompany.name}
+          </button>
+
           <div className="pt-4 border-t border-stone-200/60 mt-2 flex flex-col gap-2">
             <button onClick={() => setShowChangelogModal(true)} className="w-full flex justify-center items-center gap-2 px-3 py-2 text-stone-600 hover:text-stone-900 hover:bg-white rounded-xl transition-all font-bold text-sm border border-stone-200/60 shadow-sm">
               Voir les nouveautés ✨
             </button>
             <div className="text-center text-[10px] text-stone-400 font-bold tracking-widest uppercase">
-              V.4.0
+              V.4.1
             </div>
           </div>
         </div>

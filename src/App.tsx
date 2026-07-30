@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
-import { Analytics } from "@vercel/analytics/react"; // <-- AJOUTER CETTE LIGNE
+import { Analytics } from "@vercel/analytics/react";
 
 export default function App() {
   // ============================
@@ -135,10 +135,11 @@ export default function App() {
   // ============================
   useEffect(() => {
     fetchCompanies();
-    const hasSeenV385 = localStorage.getItem("croissantly_v3.8.5_seen");
-    if (!hasSeenV385) {
+    // On change la clé pour forcer l'affichage de la V4.1
+    const hasSeenV41 = localStorage.getItem("croissantly_v4.1_seen");
+    if (!hasSeenV41) {
       setShowChangelogModal(true);
-      localStorage.setItem("croissantly_v3.8.5_seen", "true");
+      localStorage.setItem("croissantly_v4.1_seen", "true");
     }
   }, []);
 
@@ -280,8 +281,6 @@ export default function App() {
     if (window.confirm(`⚠️ ATTENTION !\n\nVoulez-vous vraiment supprimer définitivement l'entreprise "${activeCompany.name}" ?\n\nCela supprimera TOUS les services, TOUTES les équipes et TOUS les utilisateurs associés. Cette action est irréversible.`)) {
       try {
         setLoadingCompanies(true);
-        // Supabase CASCADE delete on workspaces will handle children if set up, 
-        // but just in case, deleting the company is the primary action.
         const { error } = await supabase.from('companies').delete().eq('id', activeCompany.id);
         if (error) throw error;
         
@@ -858,7 +857,7 @@ export default function App() {
     <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 relative border border-stone-100 animate-fade-in">
         <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center text-2xl mb-4 shadow-sm border border-amber-200">✨</div>
-        <h3 className="text-2xl font-black text-stone-900 mb-2 tracking-tight">Quoi de neuf ? (V.3.8.5)</h3>
+        <h3 className="text-2xl font-black text-stone-900 mb-2 tracking-tight">Quoi de neuf ? (V.4.1)</h3>
         <p className="text-stone-500 text-sm mb-6">L'application fait peau neuve avec une mise à jour majeure !</p>
         
         <ul className="space-y-4 mb-8">
@@ -881,6 +880,13 @@ export default function App() {
             <div>
               <strong className="block text-stone-800 text-sm">Nouvelles Fonctionnalités</strong>
               <span className="text-xs text-stone-500 leading-snug block">Calendrier recentré sur 5 jours ouvrés, gestion intelligente des absences épurée, et réorganisation des statistiques d'équipes.</span>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="text-amber-500 mt-0.5">🏢</span>
+            <div>
+              <strong className="block text-stone-800 text-sm">Espaces Entreprises</strong>
+              <span className="text-xs text-stone-500 leading-snug block">Créez ou rejoignez facilement votre société. Cloisonnez vos services, ajoutez votre logo et sécurisez l'accès avec un code PIN !</span>
             </div>
           </li>
         </ul>
@@ -1024,6 +1030,7 @@ export default function App() {
             </form>
           )}
         </div>
+        <Analytics />
       </div>
     );
   }
@@ -1126,7 +1133,7 @@ export default function App() {
           
           <button onClick={openCompanySettings} className="w-full flex items-center gap-3 px-3 py-2.5 text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 rounded-xl transition-all text-left font-medium text-sm">
             <span className="w-6 h-6 rounded flex items-center justify-center bg-stone-200/50 text-stone-500 text-lg leading-none">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             </span>
             Paramètres {activeCompany.name}
           </button>
@@ -1760,7 +1767,7 @@ export default function App() {
 
       {/* VERCEL ANALYTICS */}
       <Analytics />
-
+      
     </div>
   );
 }

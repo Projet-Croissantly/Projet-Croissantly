@@ -277,10 +277,24 @@ export default function App() {
     }
   };
 
-  const handleDeleteCompany = async () => {
+ const handleDeleteCompany = async () => {
     if (window.confirm(`⚠️ ATTENTION !\n\nVoulez-vous vraiment supprimer définitivement l'entreprise "${activeCompany.name}" ?\n\nCela supprimera TOUS les services, TOUTES les équipes et TOUS les utilisateurs associés. Cette action est irréversible.`)) {
       try {
         setLoadingCompanies(true);
+        
+        // 1. On identifie tous les services (workspaces) rattachés à cette entreprise
+        const { data: wsData } = await supabase.from("workspaces").select("id").eq("company_id", activeCompany.id);
+        
+        if (wsData && wsData.length > 0) {
+          const wsIds = wsData.map(ws => ws.id);
+          // 2. On supprime d'abord les "enfants" pour ne pas bloquer la base de données
+          await supabase.from("users").delete().in("workspace_id", wsIds);
+          await supabase.from("app_settings").delete().in("workspace_id", wsIds);
+          // 3. On supprime ensuite les services
+          await supabase.from("workspaces").delete().in("id", wsIds);
+        }
+
+        // 4. Maintenant que tout est propre, on peut supprimer l'entreprise
         const { error } = await supabase.from('companies').delete().eq('id', activeCompany.id);
         if (error) throw error;
         
